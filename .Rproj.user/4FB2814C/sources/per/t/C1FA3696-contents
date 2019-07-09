@@ -1,0 +1,263 @@
+---
+title: "Text_processing"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls())
+packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","mgcv","Amelia","lubridate","here","fuzzyjoin")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+}
+lapply(packages, library, character.only = TRUE)
+
+```
+
+
+
+```{r reading the data, include=FALSE, echo=TRUE}
+raw_text_data <- import(here("data/text_df_unique.csv"))
+intensive_ema_data <- import(here("data/ema_df.csv"))
+daily_ema_data <- import(here("data/daily_df.csv"))
+
+# Missing some participant IDs so I'm moving the bucket device ID over to the NA
+raw_text_data$participant_id[is.na(raw_text_data$participant_id)] <- raw_text_data$bucket_device_id[is.na(raw_text_data$participant_id)]
+
+testing_buckets <- unique(raw_text_data$bucket_device_id)
+
+device_id <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(device_id) <- c("bucket_device_id","participant_id")
+
+for(i in 1:length(testing_buckets)){
+  what <- unique(raw_text_data$participant_id[raw_text_data$bucket_device_id==testing_buckets[i]])
+  device_id[i,1] <- testing_buckets[i]
+  device_id[i,2] <- what
+}
+
+# Remove the test data from the dataset
+daily_ema_data<-daily_ema_data[!(daily_ema_data$participant_id=="test"),]
+
+intensive_ema_data <- merge(intensive_ema_data,device_id,by="bucket_device_id")
+
+raw_text_data %>%
+  {unique(.$participant_id)}
+```
+
+
+
+```{r}
+# Check out the missing data patterns 
+#raw_text_data %>%
+  #select(-deactivation_date_n) %>%
+  #missmap()
+
+# Check out missing data patterns
+#missmap(intensive_ema_data)
+
+# Check out missing data patterns
+#missmap(daily_ema_data)
+```
+
+Now we're going to process the data
+
+```{r initial processing of the data, include=FALSE}
+# First we're going to just check out and see how many messages each participant sent
+raw_text_data %>%
+  group_by(participant_id) %>%
+  tally(sort=TRUE)
+
+raw_text_data %>%
+  group_by(app) %>%
+  tally(sort=TRUE)
+
+# Now let's see what the first EMA time and date is for each participant
+
+daily_ema_data <- daily_ema_data[!is.na(daily_ema_data$participant_id) & !is.na(daily_ema_data$bucket_device_id),]
+
+
+daily_ema_data$participant_id[is.na(daily_ema_data$participant_id)] <- daily_ema_data$bucket_device_id[is.na(daily_ema_data$participant_id)]
+
+
+daily_testing_buckets <- unique(daily_ema_data$bucket_device_id)
+
+daily_device_id <- data.frame(matrix(ncol = 2, nrow = 0))
+colnames(daily_device_id) <- c("bucket_device_id","participant_id")
+
+for(i in 1:length(daily_testing_buckets)){
+  what <- unique(daily_ema_data$participant_id[daily_ema_data$bucket_device_id==daily_testing_buckets[i]])
+  daily_device_id[i,1] <- daily_testing_buckets[i]
+  daily_device_id[i,2] <- what
+}
+
+
+
+intensive_ema_data %>%
+  group_by(participant_id) %>%
+  tally(sort=TRUE)
+
+daily_ema_data %>%
+  group_by(participant_id) %>%
+  tally(sort=TRUE)
+
+daily_ema_data$timestamp_est <- as.POSIXct(daily_ema_data$timestamp_est, format="%Y-%m-%d %H:%M:%S",tz="America/New_York")
+
+daily_ema_data$date <- as_date(daily_ema_data$timestamp_est)
+
+intensive_ema_data$timeCompleted <- as_datetime(as.numeric(intensive_ema_data$timeCompleted)/1000,tz="America/New_York")
+
+
+daily_ema_data %>%
+  ggplot(aes(x = timestamp_est, y = daily, group = participant_id)) +
+  stat_summary(aes(group = participant_id,color=participant_id), geom = "line", fun.y = mean, size = .5) +
+  facet_wrap(~participant_id) + 
+  theme(legend.position = "none")
+
+intensive_ema_data %>%
+  ggplot(aes(x = timeCompleted, y = sad, group = participant_id)) +
+  stat_summary(aes(group = participant_id,color=participant_id), geom = "line", fun.y = mean, size = .5) +
+  facet_wrap(~participant_id) + 
+  theme(legend.position = "none")
+
+
+
+```
+
+
+
+```{r}
+text_counts <- raw_text_data %>%
+  group_by(participant_id,date) %>%
+  tally()
+
+text_counts %>%
+  ggplot(aes(x = date, y = n, group = participant_id)) +
+  stat_summary(aes(group = participant_id,color=participant_id), geom = "line", fun.y = mean, size = .5) +
+  facet_wrap(~participant_id,scales="free") + 
+  theme(legend.position = "none")
+```
+
+
+
+```{r}
+text_counts$date <- as.Date(text_counts$date, format = "%Y-%m-%d")
+gam_data <- merge(text_counts, daily_ema_data, by=c("participant_id","date")) %>%
+  select(participant_id,date,n,site,daily,day_of_week,weekend)
+
+gam_data <- gam_data %>%
+  group_by(participant_id) %>%
+  filter(n() >= 15)
+
+gam_data %>%
+  group_by(participant_id) %>%
+  count(sort=TRUE)
+
+
+gam_data <- gam_data[order(gam_data$participant_id, gam_data$date), ]
+
+gam_data <- gam_data %>%
+  group_by(participant_id) %>%
+  mutate(diff_days = difftime(date, min(date),units="days"))
+
+gam_data <- gam_data %>%
+  group_by(participant_id) %>%
+  mutate(lag_days = difftime(date, lag(date),units="days"))
+
+gam_data$lag_days <- as.numeric(gam_data$lag_days)
+
+gam_data <- gam_data %>% 
+  group_by(participant_id) %>% 
+  filter(is.na(lead(lag_days)) | !lead(lag_days)==0)
+
+gam_data <- gam_data %>%
+  group_by(participant_id) %>%
+  mutate(lag_days = difftime(date, lag(date),units="days"))
+
+```
+
+
+
+```{r}
+gam_data$diff_days <- as.numeric(gam_data$diff_days)
+
+gam_data$participant_id <- as.factor(gam_data$participant_id)
+
+gam_data$site <- as.factor(gam_data$site)
+
+gam_data$log_n <- log(gam_data$n)
+
+model_1 <- gam(daily ~ 
+                  s(diff_days,log_n,by=participant_id, k=20, bs=c("tp","tp")) + 
+                  s(participant_id, bs="re"), 
+                  data=gam_data,
+                  method="REML")
+
+gam.check(model_1)
+
+plot(model_1,scheme=2)
+
+
+```
+
+
+
+```{r}
+intensive_ema_data %>%
+  ggplot(aes(x = timeCompleted, y = sad, group = participant_id)) +
+  stat_summary(aes(group = participant_id,color=participant_id), geom = "line", fun.y = mean, size = .5) +
+  facet_wrap(~participant_id) + 
+  theme(legend.position = "none")
+
+intensive_ema_data$date <- as_date(intensive_ema_data$timeCompleted)
+
+ema_1004 <- intensive_ema_data %>%
+  filter(participant_id==1004 & ema_self_initiated == FALSE) 
+
+ema_1004 <- ema_1004 %>%
+  mutate(start_time = timeCompleted - hours(2))
+
+raw_text_data$date <- as_date(raw_text_data$date)
+
+text_1004 <- raw_text_data %>%
+  filter(participant_id==1004)
+
+text_1004$timestamp_est <- as.POSIXct(text_1004$timestamp_est, format="%Y-%m-%d %H:%M:%S",tz="America/New_York")
+
+text_1004 %>%
+  group_by(date) %>%
+  tally()
+
+test <- ema_1004 %>%
+  left_join(text_1004,by = c("participant_id")) %>%
+  filter(timestamp_est >= start_time & timestamp_est < timeCompleted) 
+library(fuzzyjoin)
+
+ema_1004 <- ema_1004 %>%
+  select(-timeInitiated,-ema_self_initiated)
+
+huh <- fuzzy_left_join(
+  ema_1004,text_1004,
+  by = c(
+    "participant_id" = "participant_id",
+    "start_time" = "timestamp_est",
+    "timeCompleted" = "timestamp_est"
+    ),
+  match_fun = list(`==`, `<=`, `>`)
+  ) 
+
+gam_1004 <- huh %>%
+  group_by(timeCompleted,.drop=FALSE) %>%
+  add_tally()
+
+gam_1004 <- gam_1004 %>%
+  group_by(start_time)
+gam_1004 <- gam_1004 %>% 
+  distinct(start_time, .keep_all=TRUE)
+
+model_1 <- gam(happy ~ 
+                  s(diff_days,log_n,by=participant_id, k=20, bs=c("tp","tp")) + 
+                  s(participant_id, bs="re"), 
+                  data=gam_data,
+                  method="REML")
+
+```
+

@@ -1,0 +1,8 @@
+"0","model_1 <- gam(daily ~ 
+                  s(diff_days,log_n,by=participant_id, k=20, bs=c(""tp"",""tp"")) + 
+                  s(participant_id, bs=""re""), 
+                  data=gam_data,
+                  method=""REML"")
+"
+"2","Error in eval(predvars, data, env) : object 'log_n' not found
+"

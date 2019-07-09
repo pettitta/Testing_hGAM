@@ -1,0 +1,8 @@
+"0","# Check out the missing data patterns "
+"0","#raw_text_data %>%"
+"0","  #select(-deactivation_date_n) %>%"
+"0","  #missmap()"
+"0","# Check out missing data patterns"
+"0","#missmap(intensive_ema_data)"
+"0","# Check out missing data patterns"
+"0","#missmap(daily_ema_data)"

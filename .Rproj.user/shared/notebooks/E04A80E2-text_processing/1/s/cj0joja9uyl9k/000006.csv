@@ -1,0 +1,6 @@
+"0","gam_data$diff_days <- as.numeric(gam_data$diff_days)
+"
+"2","Unknown or uninitialised column: 'diff_days'."
+"2","Error in `$<-.data.frame`(`*tmp*`, diff_days, value = numeric(0)) : 
+  replacement has 0 rows, data has 18
+"
