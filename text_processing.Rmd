@@ -255,13 +255,17 @@ knitr::kable(head(gam_1004))
 
 ```
 
-# What is this, a hGAMe to you?
+# Is this just a hGAMe 2 you?
 Let's bring out our second model!
 
-```{r}
+```{r,echo=FALSE}
 
-model_2 <- gam(happy ~ 
-                  s(diff_hours, k=10, bs="tp"),
+gam_1004$diff_hours <- as.numeric(gam_1004$diff_hours)
+
+
+
+model_2 <- gam(calm ~ 
+                  s(diff_hours,log_n, k=20, bs=c("tp","tp")),
                   data=gam_1004,
                   correlation = corARMA(form = ~ 1|participant_id),
                   method="REML")
