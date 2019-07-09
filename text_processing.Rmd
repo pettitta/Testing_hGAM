@@ -166,7 +166,7 @@ gam_data <- gam_data %>%
 knitr::kable(head(gam_data))
 ```
 
-```{r, echo=FALSE,message=FALSE,warning=FALSE}
+```{r log transform data, echo=FALSE,message=FALSE,warning=FALSE}
 gam_data$diff_days <- as.numeric(gam_data$diff_days)
 
 gam_data$participant_id <- as.factor(gam_data$participant_id)
@@ -180,11 +180,12 @@ gam_data$log_n <- log(gam_data$n)
 # Running the hGAMbit
 Show us that model!
 
-```{r,message=FALSE,warning=FALSE}
+```{r run the hGAM,message=FALSE,warning=FALSE}
 model_1 <- gam(daily ~ 
                   s(diff_days,log_n,by=participant_id, k=20, bs=c("tp","tp")) + 
                   s(participant_id, bs="re"), 
                   data=gam_data,
+                  correlation = corARMA(form = ~ 1|participant_id),
                   method="REML")
 
 plot(model_1,scheme=2)
@@ -192,7 +193,7 @@ plot(model_1,scheme=2)
 
 # Intensive EMA hGAM
 
-```{r, echo=FALSE,message=FALSE,warning=FALSE}
+```{r process intensive EMA and text, echo=FALSE,message=FALSE,warning=FALSE}
 intensive_ema_data$date <- as_date(intensive_ema_data$timeCompleted)
 
 ema_1004 <- intensive_ema_data %>%
@@ -237,18 +238,35 @@ gam_1004 <- gam_1004 %>%
 
 gam_1004 <- gam_1004 %>%
   group_by(participant_id.x) %>%
-  mutate(diff_days = difftime(timeCompleted, min(timeCompleted),units="hours"))
+  mutate(diff_hours = difftime(timeCompleted, min(timeCompleted),units="hours"))
 
 gam_1004 <- gam_1004 %>%
-  select(participant_id=participant_id.x,angry,anxious,calm,confident,happy,included,lonely,rejected,sad,stressed,supported,start_time,timeCompleted,date=date.x,weekend,n,recentContact)
+  select(participant_id=participant_id.x,angry,anxious,calm,confident,happy,included,lonely,rejected,sad,stressed,supported,start_time,timeCompleted,date=date.x,weekend,n,recentContact,diff_hours)
+
+gam_1004$log_n <- log(gam_1004$n)
 
 ```
 
 Let's take a look at the data structure
 
-```{r, echo=FALSE,message=FALSE,warning=FALSE}
+```{r check out the gam_1004 data, echo=FALSE,message=FALSE,warning=FALSE}
 
 knitr::kable(head(gam_1004))
+
+```
+
+# What is this, a hGAMe to you?
+Let's bring out our second model!
+
+```{r}
+
+model_2 <- gam(happy ~ 
+                  s(diff_hours,log_n, k=10, bs=c("cs","tp")), 
+                  data=gam_1004,
+                  correlation = corARMA(form = ~ 1|participant_id),
+                  method="REML")
+
+plot(model_2,scheme=2)
 
 ```
 
