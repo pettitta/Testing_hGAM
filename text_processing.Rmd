@@ -261,7 +261,7 @@ Let's bring out our second model!
 ```{r}
 
 model_2 <- gam(happy ~ 
-                  s(diff_hours,log_n, k=10, bs=c("cs","tp")), 
+                  s(diff_hours, k=10, bs="tp"),
                   data=gam_1004,
                   correlation = corARMA(form = ~ 1|participant_id),
                   method="REML")
