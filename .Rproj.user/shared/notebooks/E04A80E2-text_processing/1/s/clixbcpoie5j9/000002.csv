@@ -1,5 +1,0 @@
-"0","intensive_ema_data %>%"
-"0","  ggplot(aes(x = timeCompleted, y = sad, group = participant_id)) +"
-"0","  stat_summary(aes(group = participant_id,color=participant_id), geom = ""line"", fun.y = mean, size = .5) +"
-"0","  facet_wrap(~participant_id) + "
-"0","  theme(legend.position = ""none"")"

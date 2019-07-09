@@ -1,8 +1,0 @@
-"0","text_counts <- raw_text_data %>%"
-"0","  group_by(participant_id,date) %>%"
-"0","  tally()"
-"0","text_counts %>%"
-"0","  ggplot(aes(x = date, y = n, group = participant_id)) +"
-"0","  stat_summary(aes(group = participant_id,color=participant_id), geom = ""line"", fun.y = mean, size = .5) +"
-"0","  facet_wrap(~participant_id,scales=""free"") + "
-"0","  theme(legend.position = ""none"")"
