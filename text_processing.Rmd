@@ -5,15 +5,13 @@ output: html_document
 
 ```{r setup, include=FALSE}
 rm(list=ls())
-packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","mgcv","Amelia","lubridate","here","fuzzyjoin")
+packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","gratia","mgcv","Amelia","lubridate","here","fuzzyjoin","Metrics")
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
   install.packages(setdiff(packages, rownames(installed.packages())))  
 }
 lapply(packages, library, character.only = TRUE)
 
 ```
-
-
 
 ```{r reading the data, echo=FALSE,message=FALSE,warning=FALSE}
 raw_text_data <- import(here("data/text_df_unique.csv"))
@@ -22,6 +20,20 @@ daily_ema_data <- import(here("data/daily_df.csv"))
 
 # Missing some participant IDs so I'm moving the bucket device ID over to the NA
 raw_text_data$participant_id[is.na(raw_text_data$participant_id)] <- raw_text_data$bucket_device_id[is.na(raw_text_data$participant_id)]
+
+stuff_to_remove <- c("Send a chat","Enter message","Say something in pizza_suplex's chat","Search or type web address","Search or enter URL","Type a message","Search YouTube","Say your thing","Write a message","Shantii.thedubb","Type search keywords")
+
+# Remove "send a chat" from thing
+
+raw_text_data <- raw_text_data[!grepl(stuff_to_remove, raw_text_data$text),]
+
+
+more_stuff_to_remove <- c("w\x95","\x95\x95\x95\x95\x95\x95\x95i\x95","Type a message\x85")
+
+for(i in 1:10){
+  raw_text_data <- raw_text_data %>% filter(!str_detect(text, more_stuff_to_remove))
+}
+
 
 testing_buckets <- unique(raw_text_data$bucket_device_id)
 
@@ -121,6 +133,7 @@ Now let's see how many participants responded to the intensive EMA daat
 intensive_ema_data$timeCompleted <- as_datetime(as.numeric(intensive_ema_data$timeCompleted)/1000,tz="America/New_York")
 
 intensive_ema_data %>%
+  filter(ema_self_initiated==FALSE) %>%
   ggplot(aes(x = timeCompleted, y = sad, group = participant_id)) +
   stat_summary(aes(group = participant_id,color=participant_id), geom = "line", fun.y = mean, size = .5) +
   facet_wrap(~participant_id) + 
@@ -232,7 +245,9 @@ gam_1004 <- huh %>%
   add_tally()
 
 gam_1004 <- gam_1004 %>%
-  group_by(start_time)
+  group_by(participant_id.x,start_time)
+gam_1004_text_alt <- gam_1004 %>%
+  group_by(participant_id.x,start_time)
 gam_1004 <- gam_1004 %>% 
   distinct(start_time, .keep_all=TRUE)
 
@@ -271,6 +286,301 @@ model_2 <- gam(calm ~
                   method="REML")
 
 plot(model_2,scheme=2)
+
+```
+
+
+```{r tidy text, echo=FALSE}
+
+library(tidytext)
+
+text_tidy_data <- raw_text_data
+
+text_tidy_data <- text_tidy_data %>%
+  group_by(participant_id) %>%
+  mutate(textnumber = row_number()) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+
+text_tidy_data$timestamp_est <- as.POSIXct(text_tidy_data$timestamp_est, format="%Y-%m-%d %H:%M:%S",tz="America/New_York")
+
+#Remove Stop Words
+data(stop_words)
+
+text_tidy_data_filtered <- text_tidy_data %>%
+  anti_join(stop_words)
+
+
+
+my_stop_words <- tibble(
+  word = c(
+    "im",
+    "0001f602",
+    "yeah",
+    "dont",
+    "idk",
+    "lol",
+    "0001f923",
+    "wanna",
+    "ur",
+    "hey",
+    "gonna",
+    "tho",
+    "ill",
+    "bc",
+    "ye",
+    "lmao",
+    "0001f62d",
+    "search",
+    "message",
+    "ima",
+    "cuz",
+    "yo",
+    "people",
+    "nah",
+    "gunna",
+    "send",
+    "wont",
+    "gotta",
+    "ik"
+  ),
+  lexicon = "texting"
+)
+
+text_tidy_data_filtered <- text_tidy_data_filtered %>%
+  anti_join(my_stop_words)
+
+texting_sentiment <- text_tidy_data_filtered %>%
+  inner_join(get_sentiments("bing")) %>%
+  count(participant_id, timestamp_est, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+text_tidy_data_filtered <- text_tidy_data_filtered %>%
+  left_join(texting_sentiment,by = c("participant_id","timestamp_est"))
+
+text_tidy_data_filtered$sentiment[is.na(text_tidy_data_filtered$sentiment)] <- 0
+
+
+text_tidy_data_filtered %>%
+  filter(participant_id==1011 | participant_id==1004) %>%
+  ggplot(aes(timestamp_est, sentiment, color = participant_id)) +
+  geom_line(show.legend = FALSE) +
+  geom_point(show.legend = FALSE) + 
+  facet_wrap(~participant_id, ncol = 2, scales = "free_x")
+
+```
+
+
+```{r join sentiment and daily EMA, echo=FALSE}
+
+daily_text_sentiment <- text_tidy_data_filtered %>%
+  group_by(participant_id,date) %>%
+  count(daily_sentiment=mean(sentiment))
+
+
+gam_data_sentiment <- merge(daily_text_sentiment, daily_ema_data, by=c("participant_id","date")) %>%
+  select(participant_id,date,daily_sentiment,n,site,daily,day_of_week,weekend)
+
+gam_data_sentiment <- gam_data_sentiment %>%
+  group_by(participant_id) %>%
+  filter(n()>= 15)
+
+gam_data_sentiment <- gam_data_sentiment[order(gam_data_sentiment$participant_id, gam_data_sentiment$date), ]
+
+gam_data_sentiment <- gam_data_sentiment %>%
+  group_by(participant_id) %>%
+  mutate(diff_days = difftime(date, min(date),units="days"))
+
+gam_data_sentiment <- gam_data_sentiment %>%
+  group_by(participant_id) %>%
+  mutate(lag_days = difftime(date, lag(date),units="days"))
+
+gam_data_sentiment$lag_days <- as.numeric(gam_data_sentiment$lag_days)
+
+gam_data_sentiment <- gam_data_sentiment %>% 
+  group_by(participant_id) %>% 
+  filter(is.na(lead(lag_days)) | !lead(lag_days)==0)
+
+gam_data_sentiment <- gam_data_sentiment %>%
+  group_by(participant_id) %>%
+  mutate(lag_days = difftime(date, lag(date),units="days"))
+
+```
+
+
+
+```{r}
+gam_data_sentiment$participant_id <- as.factor(gam_data_sentiment$participant_id)
+
+gam_data_sentiment$diff_days <- as.numeric(gam_data_sentiment$diff_days)
+
+gam_data_sentiment$log_n <- log(gam_data_sentiment$n)
+
+
+
+func <- function(xx)
+{
+return(data.frame(COR = cor(xx$daily_sentiment, xx$daily), LENG =length(xx$log_n)))
+}
+library(plyr)
+plyr::ddply(gam_data_sentiment, .(participant_id), func)
+library(apaTables)
+
+gam_data_sentiment %>%
+  apa.cor.table()
+
+cor(gam_data_sentiment$daily_sentiment,gam_data_sentiment$daily)
+
+```
+
+
+
+```{r}
+
+model_3 <- gam(daily ~ 
+                  s(log_n,daily_sentiment,by=participant_id, k=10, bs=c("tp"),m=2)+
+                  s(participant_id, bs="re"), 
+                  data=gam_data_sentiment,
+                  correlation = corARMA(form = ~ diff_days|participant_id),
+                  method="REML")
+plot(model_3,scheme=2)
+```
+
+
+```{r}
+stuff <- transform(gam_data_sentiment, modG = predict(model_3, type="response"))
+
+
+
+library(viridis)
+
+test_1 <-ggplot(data=stuff, aes(x=log_n, y=daily_sentiment, fill=modG,color=modG)) +
+  geom_tile(size=5) +
+  facet_wrap(~ participant_id) +
+  scale_fill_viridis("Predicted Daily") +
+  scale_color_viridis("Predicted Daily") +
+  labs(x = "Number of Texts", y = "Sentiment") +
+  theme(legend.position="right")
+
+test_2 <- ggplot(data=stuff, aes(x=log_n, y=daily_sentiment, fill=daily,color=daily)) +
+  geom_tile(size=5) +
+  facet_wrap(~ participant_id) +
+  scale_fill_viridis("Actual Daily") +
+  scale_color_viridis("Actual Daily") +
+  labs(x = "Number of Texts", y = "Sentiment") +
+  theme(legend.position="right")
+
+library(cowplot)
+plot_grid(test_1, test_2, 
+          ncol=1, 
+          align="vh", 
+          axis = "lrtb",
+          labels=c("A","B"), 
+          rel_heights= c(1,1))
+
+ggplot(data=stuff, aes(x=modG, y=daily)) +
+  facet_wrap(~ participant_id) +
+  geom_point(alpha=0.1) +
+  geom_abline() +
+  labs(x="Predicted count (model *GS*)", y= "Observed count")
+
+
+```
+
+```{r}
+
+
+text_train <- gam_data_sentiment %>% 
+   group_by(participant_id) %>% 
+   filter(row_number() < (n()-3))
+
+text_test <- gam_data_sentiment %>% 
+   group_by(participant_id) %>% 
+   filter(row_number() >= (n()-3))
+
+
+#This function calculates the deviance of out-of-sample data,
+#conditional on their mean predicted value from the model
+get_deviance <- function(model, y_pred, y_obs, weights = NULL){
+  stopifnot(length(y_obs)==length(y_pred))
+  #We don't use the weights term in this paper, but it can be useful if
+  #how well the model matters more for some sample points than others
+  if(is.null(weights)) weights = rep(1, times= length(y_obs))
+  #this uses the deviance residual function from the model family to
+  #calculate deviances for individual points
+  dev_residuals = model$family$dev.resids(y_obs, y_pred, weights)
+  return(sum(dev_residuals))
+}
+
+
+model_4 <- gam(daily ~ 
+                  s(log_n,daily_sentiment,by=participant_id, k=10, bs=c("tp"),m=2)+
+                  s(participant_id, bs="re"), 
+                  data=text_train,
+                  correlation = corARMA(form = ~ diff_days|participant_id),
+                  method="REML")
+
+model_4_predicted <- predict(model_4,text_test,type="response")
+
+library(Metrics)
+
+rmse(model_4_predicted,text_test$daily)
+
+get_deviance(model_4,model_4_predicted,text_test$daily)
+
+text_test$predicted <- model_4_predicted
+
+text_test %>%
+  select(participant_id,daily,predicted)
+
+model_5 <- gam(daily ~ 
+                  1 + s(participant_id, bs="re"), 
+                  data=text_train,
+                  correlation = corARMA(form = ~ diff_days|participant_id),
+                  method="REML")
+
+model_5_predicted <- predict(model_5,text_test,type="response")
+
+rmse(model_5_predicted,text_test$daily)
+
+
+model_5_predicted <- predict(model_5,text_test,type="response")
+
+get_deviance(model_5,model_5_predicted,text_test$daily)
+
+
+daph_modG_fit <- predict(zoo_daph_modG, 
+                         newdata = daph_plot_data, 
+                         se.fit = TRUE, 
+                         exclude = "s(lake,year_f)")
+```
+
+
+
+```{r}
+
+participant_gam_data_sentiment <- gam_data_sentiment %>%
+  filter(participant_id==1006)
+
+model_4 <- gam(daily ~ 
+                  s(daily_sentiment,n, k=10, bs=c("tp"),m=2),                  
+                  data=participant_gam_data_sentiment,
+                  correlation = corARMA(form = ~ diff_days|participant_id),
+                  method="REML")
+
+
+draw(model_4)
+
+stuff_1 <- transform(participant_gam_data_sentiment, modG = predict(model_4, type="response"))
+
+ggplot(stuff_1, aes(x=modG, y=daily)) +
+  facet_wrap(~participant_id) +
+  geom_point(alpha=0.1) +
+  geom_abline() +
+  labs(x="Predicted daily", y="Observed observed")
+
+
 
 ```
 
