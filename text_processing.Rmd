@@ -5,7 +5,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 rm(list=ls())
-packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","gratia","mgcv","Amelia","lubridate","here","fuzzyjoin","Metrics")
+packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","gratia","mgcv","Amelia","lubridate","here","fuzzyjoin","Metrics","readxl")
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
   install.packages(setdiff(packages, rownames(installed.packages())))  
 }
@@ -14,9 +14,13 @@ lapply(packages, library, character.only = TRUE)
 ```
 
 ```{r reading the data, echo=FALSE,message=FALSE,warning=FALSE}
-raw_text_data <- import(here("data/text_df_unique.csv"))
+#raw_text_data <- import(here("data/text_df_unique.csv"))
 intensive_ema_data <- import(here("data/ema_df.csv"))
-daily_ema_data <- import(here("data/daily_df.csv"))
+#daily_ema_data <- import(here("data/daily_df.csv"))
+raw_text_data <- read_excel(here("data/maps_text_unique_nopw.xlsx"))
+daily_ema_data <- read_excel(here("data/maps_daily_nopw.xlsx"))
+
+
 
 # Missing some participant IDs so I'm moving the bucket device ID over to the NA
 raw_text_data$participant_id[is.na(raw_text_data$participant_id)] <- raw_text_data$bucket_device_id[is.na(raw_text_data$participant_id)]
@@ -293,7 +297,7 @@ plot(model_2,scheme=2)
 ```{r tidy text, echo=FALSE}
 
 library(tidytext)
-
+library(dplyr)
 text_tidy_data <- raw_text_data
 
 text_tidy_data <- text_tidy_data %>%
@@ -384,13 +388,13 @@ gam_data_sentiment <- merge(daily_text_sentiment, daily_ema_data, by=c("particip
 
 gam_data_sentiment <- gam_data_sentiment %>%
   group_by(participant_id) %>%
-  filter(n()>= 15)
+  filter(n()>=5)
 
 gam_data_sentiment <- gam_data_sentiment[order(gam_data_sentiment$participant_id, gam_data_sentiment$date), ]
 
 gam_data_sentiment <- gam_data_sentiment %>%
   group_by(participant_id) %>%
-  mutate(diff_days = difftime(date, min(date),units="days"))
+  mutate(diff_days = 1:n())
 
 gam_data_sentiment <- gam_data_sentiment %>%
   group_by(participant_id) %>%
@@ -405,6 +409,9 @@ gam_data_sentiment <- gam_data_sentiment %>%
 gam_data_sentiment <- gam_data_sentiment %>%
   group_by(participant_id) %>%
   mutate(lag_days = difftime(date, lag(date),units="days"))
+
+gam_data_sentiment <- gam_data_sentiment %>%
+  filter(participant_id != 1006)
 
 ```
 
@@ -428,7 +435,7 @@ plyr::ddply(gam_data_sentiment, .(participant_id), func)
 library(apaTables)
 
 gam_data_sentiment %>%
-  apa.cor.table()
+  apaTables::apa.cor.table()
 
 cor(gam_data_sentiment$daily_sentiment,gam_data_sentiment$daily)
 
@@ -491,31 +498,35 @@ ggplot(data=stuff, aes(x=modG, y=daily)) +
 ```{r}
 
 
+gam_data_sentiment$weekend <- as.factor(gam_data_sentiment$weekend)
+
+#text_train <- gam_data_sentiment %>% 
+   #group_by(participant_id) %>% 
+   #filter(row_number() < (n()-3))
+
 text_train <- gam_data_sentiment %>% 
    group_by(participant_id) %>% 
-   filter(row_number() < (n()-3))
+   filter(if (n() >= 15) row_number() < (n()-3) else row_number() <= (n()-0))
 
-text_test <- gam_data_sentiment %>% 
+text_test <- gam_data_sentiment %>%
+  group_by(participant_id) %>%
+  filter(n() >= 15)
+
+text_test <- text_test %>% 
    group_by(participant_id) %>% 
    filter(row_number() >= (n()-3))
 
 
-#This function calculates the deviance of out-of-sample data,
-#conditional on their mean predicted value from the model
-get_deviance <- function(model, y_pred, y_obs, weights = NULL){
-  stopifnot(length(y_obs)==length(y_pred))
-  #We don't use the weights term in this paper, but it can be useful if
-  #how well the model matters more for some sample points than others
-  if(is.null(weights)) weights = rep(1, times= length(y_obs))
-  #this uses the deviance residual function from the model family to
-  #calculate deviances for individual points
-  dev_residuals = model$family$dev.resids(y_obs, y_pred, weights)
-  return(sum(dev_residuals))
-}
 
 
-model_4 <- gam(daily ~ 
-                  s(log_n,daily_sentiment,by=participant_id, k=10, bs=c("tp"),m=2)+
+
+
+
+
+
+
+model_4 <- gam(daily ~ weekend + 
+                  s(log_n,daily_sentiment, k=10, bs=c("sos"))+
                   s(participant_id, bs="re"), 
                   data=text_train,
                   correlation = corARMA(form = ~ diff_days|participant_id),
@@ -527,12 +538,9 @@ library(Metrics)
 
 rmse(model_4_predicted,text_test$daily)
 
-get_deviance(model_4,model_4_predicted,text_test$daily)
 
 text_test$predicted <- model_4_predicted
 
-text_test %>%
-  select(participant_id,daily,predicted)
 
 model_5 <- gam(daily ~ 
                   1 + s(participant_id, bs="re"), 
@@ -547,15 +555,55 @@ rmse(model_5_predicted,text_test$daily)
 
 model_5_predicted <- predict(model_5,text_test,type="response")
 
-get_deviance(model_5,model_5_predicted,text_test$daily)
+
+text_test <- transform(text_test, mod4 = predict(model_4,text_test,type="response"))
+
+library(viridis)
+text_test <- transform(text_test, mod5 = predict(model_5,text_test,type="response"))
 
 
-daph_modG_fit <- predict(zoo_daph_modG, 
-                         newdata = daph_plot_data, 
-                         se.fit = TRUE, 
-                         exclude = "s(lake,year_f)")
+test_1 <-ggplot(data=text_test, aes(x=log_n, y=daily_sentiment, fill=mod4,color=mod4)) +
+  geom_tile(size=5) +
+  facet_wrap(~ participant_id) +
+  scale_fill_viridis("Predicted Daily") +
+  scale_color_viridis("Predicted Daily") +
+  labs(x = "Number of Texts", y = "Sentiment") +
+  theme(legend.position="right")
+
+test_2 <-ggplot(data=text_test, aes(x=log_n, y=daily_sentiment, fill=mod5,color=mod5)) +
+  geom_tile(size=5) +
+  facet_wrap(~ participant_id) +
+  scale_fill_viridis("Predicted Daily") +
+  scale_color_viridis("Predicted Daily") +
+  labs(x = "Number of Texts", y = "Sentiment") +
+  theme(legend.position="right")
+
+test_3 <- ggplot(data=text_test, aes(x=log_n, y=daily_sentiment, fill=daily,color=daily)) +
+  geom_tile(size=5) +
+  facet_wrap(~ participant_id) +
+  scale_fill_viridis("Actual Daily") +
+  scale_color_viridis("Actual Daily") +
+  labs(x = "Number of Texts", y = "Sentiment") +
+  theme(legend.position="right")
+
+plot_grid(test_1, test_3, 
+          ncol=1, 
+          align="vh", 
+          axis = "lrtb",
+          labels=c("A","B"), 
+          rel_heights= c(1,1))
 ```
 
+```{r}
+model_4 <- gam(daily ~ weekend + 
+                  s(log_n,daily_sentiment, by=participant_id, k=10, bs=c("ts"))+
+                  s(participant_id, bs="re"), 
+                  data=text_train,
+                  correlation = corARMA(form = ~ diff_days|participant_id),
+                  method="REML")
+
+plot(model_4)
+```
 
 
 ```{r}
