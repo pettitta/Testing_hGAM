@@ -584,3 +584,28 @@ ggplot(stuff_1, aes(x=modG, y=daily)) +
 
 ```
 
+
+
+```{r}
+library(e1071)
+
+model <- svm(daily ~ participant_id + daily_sentiment + n + diff_days + weekend, text_train)
+predictedY <- predict(model, text_test)
+
+rmse(text_test[["daily"]],predictedY)
+
+tuneResult <- tune(svm, daily ~ participant_id + daily_sentiment + n + diff_days + weekend,  data = text_train,
+                   ranges = list(epsilon = seq(0,0.2,0.01), cost = 2^(2:9))
+) 
+ 
+print(tuneResult)
+plot(tuneResult)
+
+tunedModel <- tuneResult$best.model
+tunedModelY <- predict(tunedModel, text_test) 
+
+rmse(text_test[["daily"]],tunedModelY)
+
+
+```
+
