@@ -549,11 +549,6 @@ model_5_predicted <- predict(model_5,text_test,type="response")
 
 get_deviance(model_5,model_5_predicted,text_test$daily)
 
-
-daph_modG_fit <- predict(zoo_daph_modG, 
-                         newdata = daph_plot_data, 
-                         se.fit = TRUE, 
-                         exclude = "s(lake,year_f)")
 ```
 
 
