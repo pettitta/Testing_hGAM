@@ -5,7 +5,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 rm(list=ls())
-packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","gratia","mgcv","Amelia","lubridate","here","fuzzyjoin","Metrics","readxl")
+packages <- c("rio","tidyverse","reshape","lme4","interactions","jtools","lmerTest","Amelia","mice","lavaan","semTools","janitor","stargazer","plotluck","splitstackshape","gratia","mgcv","Amelia","lubridate","here","fuzzyjoin","Metrics","readxl","tidytext")
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
   install.packages(setdiff(packages, rownames(installed.packages())))  
 }
@@ -655,6 +655,39 @@ tunedModelY <- predict(tunedModel, text_test)
 
 rmse(text_test[["daily"]],tunedModelY)
 
+plot(text_test$daily_sentiment,text_test$daily)
 
+points(text_test$daily_sentiment,tunedModelY, col = "red", pch=4)
+
+library(reticulate)
+
+py_install("tzlocal")
+use_condaenv("r-reticulate")
+
+```
+
+
+Let's put the data together in a new way, with a daily score associated with each message.
+
+```{r}
+full_data <- merge(raw_text_data, daily_ema_data, by=c("participant_id","date"))
+
+write.csv(full_data,'data/full_daily_data.csv')
+
+```
+
+
+
+```{python}
+import pandas as pd
+import rpy2.robjects as ro
+from rpy2.robjects.packages import importr
+from rpy2.robjects import pandas2ri
+pandas2ri.activate()
+
+
+f1=pandas2ri.ri2py_dataframe(text_train)
+
+#pd_df = pandas2ri.ri2py_dataframe(text_train)
 ```
 
